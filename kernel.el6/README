@@ -1,0 +1,19 @@
+SCST fixes for Linux:
+====================
+
+This patch includes the fixes for SCST framework ported back from mainstream kernel
+and mainstream SCST code base. Patch applies to CentOS 6.4 kernel.
+
+scst_72.patch:
+Patch file to be applied on top of SCST 2.1.0 packages from source forge website
+
+
+SCST base packages required for this patch to work:
+http://sourceforge.net/projects/scst/files/iscsi-scst/2.1.0/iscsi-scst-2.1.0.tar.gz
+http://sourceforge.net/projects/scst/files/qla2x00-target/2.1.0/qla2x00t-2.1.0.tar.gz
+http://sourceforge.net/projects/scst/files/scst/2.1.0/scst-2.1.0.tar.gz
+http://sourceforge.net/projects/scst/files/scstadmin/2.1.0/scstadmin-2.1.0.tar.gz
+
+Enhancements:
+Support user vendor CDB
+

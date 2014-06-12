@@ -1,0 +1,1921 @@
+diff -Nurp scst2.1.0/iscsi-scst/etc/initd/initd.redhat scst_rhel6/iscsi-scst/etc/initd/initd.redhat
+--- scst2.1.0/iscsi-scst/etc/initd/initd.redhat	2011-03-15 19:35:39.000000000 +0530
++++ scst_rhel6/iscsi-scst/etc/initd/initd.redhat	2014-05-15 20:03:30.940698910 +0530
+@@ -62,7 +62,7 @@ start()
+ #	configure_memsize
+ 	modprobe -q crc32c 2>/dev/null
+ 	modprobe -q crc32c-intel 2>/dev/null
+-	modprobe iscsi-scst
++	insmod  /lib/modules/`uname -r`/extra/iscsi-scst.ko
+ 	for module in ${ADD_MODULES}; do
+ 		modprobe ${module}
+ 	done
+@@ -78,7 +78,7 @@ stop()
+ {
+ 	echo -n "Stopping iSCSI target service: "
+ 	killall iscsi-scstd
+-	rmmod -w iscsi-scst
++#	rmmod -w iscsi-scst
+ 	RETVAL=$?
+ 	modprobe -r crc32c 2>/dev/null
+ 	for m in ${ADD_MODULES}; do
+diff -Nurp scst2.1.0/iscsi-scst/include/iscsi_scst_ver.h scst_rhel6/iscsi-scst/include/iscsi_scst_ver.h
+--- scst2.1.0/iscsi-scst/include/iscsi_scst_ver.h	2011-09-02 00:31:25.000000000 +0530
++++ scst_rhel6/iscsi-scst/include/iscsi_scst_ver.h	2014-05-15 20:03:30.951700437 +0530
+@@ -14,7 +14,7 @@
+  *  GNU General Public License for more details.
+  */
+ 
+-/* #define CONFIG_SCST_PROC */
++#define CONFIG_SCST_PROC
+ 
+ #ifdef CONFIG_SCST_PROC
+ #define ISCSI_VERSION_STRING_SUFFIX  "-procfs"
+diff -Nurp scst2.1.0/iscsi-scst/Makefile scst_rhel6/iscsi-scst/Makefile
+--- scst2.1.0/iscsi-scst/Makefile	2011-09-02 00:45:01.000000000 +0530
++++ scst_rhel6/iscsi-scst/Makefile	2014-05-15 20:03:30.935701486 +0530
+@@ -9,10 +9,10 @@ SHELL=/bin/bash
+ 
+ SUBDIRS := $(shell pwd)
+ 
+-SCST_INC_DIR := /usr/local/include/scst
+-#SCST_INC_DIR := $(SUBDIRS)/../scst/include
+-SCST_DIR := $(SCST_INC_DIR)
+-#SCST_DIR := $(shell pwd)/../scst/src
++#SCST_INC_DIR := /root/release/scst-2.1.0/include 
++SCST_INC_DIR := $(SUBDIRS)/../scst/include
++#SCST_DIR := /root/release/scst-2.1.0/src
++SCST_DIR := $(shell pwd)/../scst/src
+ SBINDIR := /usr/local/sbin
+ INITDIR := /etc/init.d
+ RCDIR := /etc/rc.d
+diff -Nurp scst2.1.0/iscsi-scst/usr/Makefile scst_rhel6/iscsi-scst/usr/Makefile
+--- scst2.1.0/iscsi-scst/usr/Makefile	2011-09-02 00:45:44.000000000 +0530
++++ scst_rhel6/iscsi-scst/usr/Makefile	2014-05-15 20:03:30.935701486 +0530
+@@ -22,8 +22,8 @@ OBJS_D = $(SRCS_D:.c=.o)
+ SRCS_ADM = iscsi_adm.c param.c
+ OBJS_ADM = $(SRCS_ADM:.c=.o)
+ 
+-#SCST_INC_DIR := ../../scst/include
+-SCST_INC_DIR := /usr/local/include/scst
++SCST_INC_DIR := ../../scst/include
++#SCST_INC_DIR := /usr/local/include/scst
+ 
+ CFLAGS += -O2 -fno-inline -Wall -Wextra -Wstrict-prototypes -Wno-sign-compare \
+ 	-Wimplicit-function-declaration -Wno-unused-parameter \
+diff -Nurp scst2.1.0/Makefile scst_rhel6/Makefile
+--- scst2.1.0/Makefile	1970-01-01 05:30:00.000000000 +0530
++++ scst_rhel6/Makefile	2014-05-15 20:03:30.951700437 +0530
+@@ -0,0 +1,223 @@
++#
++#  Common makefile for SCSI target mid-level and its drivers
++#  
++#  Copyright (C) 2006 Vladislav Bolkhovitin <vst@vlnb.net>
++#  
++#  This program is free software; you can redistribute it and/or
++#  modify it under the terms of the GNU General Public License
++#  as published by the Free Software Foundation, version 2
++#  of the License.
++# 
++#  This program is distributed in the hope that it will be useful,
++#  but WITHOUT ANY WARRANTY; without even the implied warranty of
++#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++#  GNU General Public License for more details.
++#
++#
++
++# Decide to use which kernel src. If not specified, is current running kernel.
++#export KDIR=/usr/src/linux-2.6
++
++SCST_DIR=scst
++QLA_INI_DIR=qla2x00t
++QLA_DIR=qla2x00t/qla2x00-target
++LSI_DIR=mpt
++USR_DIR=usr/fileio
++
++ISCSI_DIR=iscsi-scst
++#ISCSI_DISTDIR=../../../iscsi_scst_inst
++
++help:
++	@echo "		all               : make all"
++	@echo "		clean             : clean files"
++	@echo "		extraclean        : clean + clean dependencies"
++	@echo "		install           : install"
++	@echo "		uninstall         : uninstall"
++	@echo ""
++	@echo "		scst              : make scst only"
++	@echo "		scst_clean        : scst: clean "
++	@echo "		scst_extraclean   : scst: clean + clean dependencies"
++	@echo "		scst_install      : scst: install"
++	@echo "		scst_uninstall    : scst: uninstall"
++	@echo ""
++	@echo "		qla               : make QLA target driver"
++	@echo "		qla_clean         : 2.6 qla target: clean "
++	@echo "		qla_extraclean    : 2.6 qla target: clean + clean dependencies"
++	@echo "		qla_install       : 2.6 qla target: install"
++	@echo "		qla_uninstall     : 2.6 qla target: uninstall"
++	@echo ""
++	@echo "		iscsi             : make iSCSI target"
++	@echo "		iscsi_clean       : ISCSI target: clean "
++	@echo "		iscsi_extraclean  : ISCSI target: clean + clean dependencies"
++	@echo "		iscsi_install     : ISCSI target: install"
++	@echo "		iscsi_uninstall   : ISCSI target: uninstall"
++	@echo ""
++	@echo "		lsi               : make LSI MPT target"
++	@echo "		lsi_clean         : lsi target: clean "
++	@echo "		lsi_extraclean    : lsi target: clean + clean dependencies"
++	@echo "		lsi_install       : lsi target: install"
++	@echo "		lsi_uninstall     : lsi target: uninstall"
++	@echo ""
++	@echo "		usr               : make user space fileio_tgt target"
++	@echo "		usr_clean         : usr target: clean "
++	@echo "		usr_extraclean    : usr target: clean + clean dependencies"
++	@echo "		usr_install       : usr target: install"
++	@echo "		usr_uninstall     : usr target: uninstall"
++	@echo ""
++	@echo "		debug2perf        : changes debug state from full debug to full performance"
++	@echo "		debug2release     : changes debug state from full debug to release"
++	@echo "		perf2debug        : changes debug state from full performance to full debug"
++	@echo "		release2debug     : changes debug state from release to full debug"
++	@echo ""
++	@echo "	Note:"
++	@echo "		- install and uninstall may need root privileges"
++
++all:
++	cd $(SCST_DIR) && $(MAKE) $@
++	@if [ -d $(QLA_DIR) ]; then cd $(QLA_DIR) && $(MAKE) $@; fi
++#	@if [ -d $(LSI_DIR) ]; then cd $(LSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(ISCSI_DIR) ]; then cd $(ISCSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(USR_DIR) ]; then cd $(USR_DIR) && $(MAKE) $@; fi
++
++install: 
++	cd $(SCST_DIR) && $(MAKE) $@
++	@if [ -d $(QLA_DIR) ]; then cd $(QLA_DIR) && $(MAKE) $@; fi
++#	@if [ -d $(LSI_DIR) ]; then cd $(LSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(ISCSI_DIR) ]; then cd $(ISCSI_DIR) && $(MAKE) DISTDIR=$(ISCSI_DISTDIR) $@; fi
++	@if [ -d $(USR_DIR) ]; then cd $(USR_DIR) && $(MAKE) $@; fi
++
++uninstall: 
++	cd $(SCST_DIR) && $(MAKE) $@
++	@if [ -d $(QLA_DIR) ]; then cd $(QLA_DIR) && $(MAKE) $@; fi
++	@if [ -d $(LSI_DIR) ]; then cd $(LSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(ISCSI_DIR) ]; then cd $(ISCSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(USR_DIR) ]; then cd $(USR_DIR) && $(MAKE) $@; fi
++
++clean: 
++	cd $(SCST_DIR) && $(MAKE) $@
++	@if [ -d $(QLA_INI_DIR) ]; then cd $(QLA_INI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(QLA_DIR) ]; then cd $(QLA_DIR) && $(MAKE) $@; fi
++	@if [ -d $(LSI_DIR) ]; then cd $(LSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(ISCSI_DIR) ]; then cd $(ISCSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(USR_DIR) ]; then cd $(USR_DIR) && $(MAKE) $@; fi
++
++extraclean: 
++	cd $(SCST_DIR) && $(MAKE) $@
++	@if [ -d $(QLA_INI_DIR) ]; then cd $(QLA_INI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(QLA_DIR) ]; then cd $(QLA_DIR) && $(MAKE) $@; fi
++	@if [ -d $(LSI_DIR) ]; then cd $(LSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(ISCSI_DIR) ]; then cd $(ISCSI_DIR) && $(MAKE) $@; fi
++	@if [ -d $(USR_DIR) ]; then cd $(USR_DIR) && $(MAKE) $@; fi
++
++scst: 
++	cd $(SCST_DIR) && $(MAKE)
++
++scst_install: 
++	cd $(SCST_DIR) && $(MAKE) install
++
++scst_uninstall: 
++	cd $(SCST_DIR) && $(MAKE) uninstall
++
++scst_clean: 
++	cd $(SCST_DIR) && $(MAKE) clean
++
++scst_extraclean: 
++	cd $(SCST_DIR) && $(MAKE) extraclean
++
++qla:
++	cd $(QLA_DIR) && $(MAKE)
++
++qla_install:
++	cd $(QLA_DIR) && $(MAKE) install
++
++qla_uninstall:
++	cd $(QLA_DIR) && $(MAKE) uninstall
++
++qla_clean: 
++	cd $(QLA_INI_DIR) && $(MAKE) clean
++	cd $(QLA_DIR) && $(MAKE) clean
++
++qla_extraclean:
++	cd $(QLA_INI_DIR)/.. && $(MAKE) extraclean
++	cd $(QLA_DIR) && $(MAKE) extraclean
++
++iscsi:
++	cd $(ISCSI_DIR) && $(MAKE)
++
++iscsi_install:
++	cd $(ISCSI_DIR) && $(MAKE) DISTDIR=$(ISCSI_DISTDIR) install
++
++iscsi_uninstall:
++	cd $(ISCSI_DIR) && $(MAKE) uninstall
++
++iscsi_clean: 
++	cd $(ISCSI_DIR) && $(MAKE) clean
++
++iscsi_extraclean:
++	cd $(ISCSI_DIR) && $(MAKE) extraclean
++
++lsi:
++	cd $(LSI_DIR) && $(MAKE)
++
++lsi_install:
++	cd $(LSI_DIR) && $(MAKE) install
++
++lsi_uninstall:
++	cd $(LSI_DIR) && $(MAKE) uninstall
++
++lsi_clean: 
++	cd $(LSI_DIR) && $(MAKE) clean
++
++lsi_extraclean:
++	cd $(LSI_DIR) && $(MAKE) extraclean
++
++usr:
++	cd $(USR_DIR) && $(MAKE)
++
++usr_install:
++	cd $(USR_DIR) && $(MAKE) install
++
++usr_uninstall:
++	cd $(USR_DIR) && $(MAKE) uninstall
++
++usr_clean: 
++	cd $(USR_DIR) && $(MAKE) clean
++
++usr_extraclean:
++	cd $(USR_DIR) && $(MAKE) extraclean
++
++debug2perf:
++	echo "Changing current debug state from full debug to full performance"
++	patch -p0 <scst-full_perf.patch
++	patch -p0 <usr-full_perf.patch
++	patch -p0 <qla2x00t-full_perf.patch
++	patch -p0 <iscsi-full_perf.patch
++
++debug2release:
++	echo "Changing current debug state from full debug to release"
++	patch -p0 <scst-release.patch
++	patch -p0 <usr-release.patch
++	patch -p0 <qla2x00t-release.patch
++	patch -p0 <iscsi-release.patch
++
++perf2debug:
++	echo "Changing current debug state from full performance to full debug"
++	patch -p0 -R <scst-full_perf.patch
++	patch -p0 -R <usr-full_perf.patch
++	patch -p0 -R <qla2x00t-full_perf.patch
++	patch -p0 -R <iscsi-full_perf.patch
++
++release2debug:
++	echo "Changing current debug state from release to full debug"
++	patch -p0 -R <scst-release.patch
++	patch -p0 -R <usr-release.patch
++	patch -p0 -R <qla2x00t-release.patch
++	patch -p0 -R <iscsi-release.patch
++
++.PHONY: all install uninstall clean extraclean help \
++	qla qla_install qla_uninstall qla_clean qla_extraclean \
++	lsi lsi_install lsi_uninstall lsi_clean lsi_extraclean \
++	iscsi iscsi_install iscsi_uninstall iscsi_clean iscsi_extraclean \
++	scst scst_install scst_uninstall scst_clean scst_extraclean \
++	usr usr_install usr_uninstall usr_clean usr_extraclean \
++	debug2perf, debug2release, perf2debug, release2debug
+diff -Nurp scst2.1.0/qla2x00t/Makefile scst_rhel6/qla2x00t/Makefile
+--- scst2.1.0/qla2x00t/Makefile	2011-03-11 01:37:23.000000000 +0530
++++ scst_rhel6/qla2x00t/Makefile	2014-05-15 20:03:31.012698709 +0530
+@@ -1,14 +1,38 @@
++EXTRA_CFLAGS += -DQLA24XX_TGT_SUPPORT -DCONFIG_SCST_PROC
++
++ifneq ($(KERNELRELEASE),)
++EXTRA_CFLAGS += -DUNIQUE_FW_NAME
++
+ qla2xxx-y := qla_os.o qla_init.o qla_mbx.o qla_iocb.o qla_isr.o qla_gs.o \
+ 		qla_dbg.o qla_sup.o qla_attr.o qla_mid.o qla_dfs.o
+ 
+ obj-$(CONFIG_SCSI_QLA_FC) += qla2xxx.o
++else
++ifeq ($(KVER),)
++  ifeq ($(KDIR),)
++    KVER = $(shell uname -r)
++    KDIR := /lib/modules/$(KVER)/build
++  endif
++else
++  KDIR := /lib/modules/$(KVER)/build
++endif
++
++all:
++	$(MAKE) -C $(KDIR) SUBDIRS=$(shell pwd)
++
++install: all
++	$(MAKE) -C $(KDIR) SUBDIRS=$(shell pwd) BUILD_INI=m \
++		modules_install
++
++uninstall:
++	rm -f $(INSTALL_DIR)/qla2[2-3]00.ko $(INSTALL_DIR)/qla2xxx.ko 
++	-/sbin/depmod -a $(KVER)
++endif
+ 
+ clean:
+-	rm -f *.o *.ko .*.cmd *.mod.c .*.d .depend *~ Modules.symvers \
+-		Module.symvers Module.markers modules.order
++	rm -f *.o *.ko .*.cmd *.mod.c .*.d .depend *~ Modules.symvers Module.symvers
+ 	rm -rf .tmp_versions
+ 
+ extraclean: clean
+-	rm -f *.orig *.rej
+ 
+-.PHONY: clean extraclean
++.PHONY: all install uninstall clean extraclean
+diff -Nurp scst2.1.0/qla2x00t/Makefile_orig scst_rhel6/qla2x00t/Makefile_orig
+--- scst2.1.0/qla2x00t/Makefile_orig	1970-01-01 05:30:00.000000000 +0530
++++ scst_rhel6/qla2x00t/Makefile_orig	2014-05-15 20:03:31.013700168 +0530
+@@ -0,0 +1,14 @@
++qla2xxx-y := qla_os.o qla_init.o qla_mbx.o qla_iocb.o qla_isr.o qla_gs.o \
++		qla_dbg.o qla_sup.o qla_attr.o qla_mid.o qla_dfs.o
++
++obj-$(CONFIG_SCSI_QLA_FC) += qla2xxx.o
++
++clean:
++	rm -f *.o *.ko .*.cmd *.mod.c .*.d .depend *~ Modules.symvers \
++		Module.symvers Module.markers modules.order
++	rm -rf .tmp_versions
++
++extraclean: clean
++	rm -f *.orig *.rej
++
++.PHONY: clean extraclean
+diff -Nurp scst2.1.0/qla2x00t/qla2x00-target/Makefile scst_rhel6/qla2x00t/qla2x00-target/Makefile
+--- scst2.1.0/qla2x00t/qla2x00-target/Makefile	2011-09-02 00:45:36.000000000 +0530
++++ scst_rhel6/qla2x00t/qla2x00-target/Makefile	2014-05-15 20:03:31.015700261 +0530
+@@ -30,12 +30,13 @@
+ 
+ SHELL=/bin/bash
+ 
+-SCST_INC_DIR := /usr/local/include/scst
+-SCST_DIR := $(SCST_INC_DIR)
+-#SCST_INC_DIR := $(SUBDIRS)/../../scst/include
+-#SCST_DIR := $(shell pwd)/../../scst/src
++#SCST_INC_DIR := /root/user/release/scst-2.1.0/include
++#SCST_DIR := /root/user/release/scst-2.1.0/src
++SCST_INC_DIR := $(SUBDIRS)/../../scst/include
++SCST_DIR := $(shell pwd)/../../scst/src
++QLA2XXX_INC_DIR := $(shell pwd)/../
+ 
+-EXTRA_CFLAGS += -I$(SCST_INC_DIR)
++EXTRA_CFLAGS += -I$(SCST_INC_DIR)  -DFC_TARGET_SUPPORT -DQLA24XX_TGT_SUPPORT
+ 
+ INSTALL_DIR := /lib/modules/$(shell uname -r)/extra
+ 
+@@ -56,7 +57,6 @@ else
+   KDIR := /lib/modules/$(KVER)/build
+ endif
+ 
+-QLA2XXX_INC_DIR := $(KDIR)/drivers/scsi/qla2xxx
+ EXTRA_CFLAGS += -I$(QLA2XXX_INC_DIR)
+ 
+ ifneq ($(PATCHLEVEL),)
+@@ -79,7 +79,8 @@ install: all
+ SCST_MOD_VERS := $(shell ls $(SCST_DIR)/Modules.symvers 2>/dev/null)
+ ifneq ($(SCST_MOD_VERS),)
+ Modules.symvers: $(SCST_DIR)/Modules.symvers
+-	cp $(SCST_DIR)/Modules.symvers .
++        cat $(SCST_DIR)/Modules.symvers > Modules.symvers
++        cat $(QLA2XXX_INC_DIR)/Modules.symvers >> Modules.symvers
+ else
+ .PHONY: Modules.symvers
+ endif
+@@ -89,6 +90,7 @@ SCST_MOD_VERS := $(shell ls $(SCST_DIR)/
+ ifneq ($(SCST_MOD_VERS),)
+ Module.symvers: $(SCST_DIR)/Module.symvers
+ 	cp $(SCST_DIR)/Module.symvers .
++	cat $(QLA2XXX_INC_DIR)/Module.symvers >> Module.symvers
+ else
+ .PHONY: Module.symvers
+ endif
+diff -Nurp scst2.1.0/qla2x00t/qla2x00-target/qla2x00t.c scst_rhel6/qla2x00t/qla2x00-target/qla2x00t.c
+--- scst2.1.0/qla2x00t/qla2x00-target/qla2x00t.c	2011-07-08 02:59:31.000000000 +0530
++++ scst_rhel6/qla2x00t/qla2x00-target/qla2x00t.c	2014-05-15 20:03:31.020699316 +0530
+@@ -54,10 +54,11 @@
+  *     cross those functions boundaries, except tgt_stop, which
+  *     additionally protected by irq_cmd_count.
+  */
+-
++/*
+ #ifndef CONFIG_SCSI_QLA2XXX_TARGET
+ #error "CONFIG_SCSI_QLA2XXX_TARGET is NOT DEFINED"
+ #endif
++*/
+ 
+ #ifdef CONFIG_SCST_DEBUG
+ #define Q2T_DEFAULT_LOG_FLAGS (TRACE_FUNCTION | TRACE_LINE | TRACE_PID | \
+@@ -189,6 +190,11 @@ static ssize_t q2t_del_vtarget(const cha
+ static unsigned long q2t_trace_flag = Q2T_DEFAULT_LOG_FLAGS;
+ #endif
+ 
++int ql2xferdytimeout = 2;
++module_param(ql2xferdytimeout, int, S_IRUGO|S_IRUSR);
++MODULE_PARM_DESC(ql2xferdytimeout,
++                "Timeout value in seconds");
++
+ static struct scst_tgt_template tgt2x_template = {
+ #ifdef CONFIG_SCST_PROC
+ 	.name = "qla2x00tgt",
+@@ -2185,7 +2191,7 @@ static void q2x_build_ctio_pkt(struct q2
+ }
+ 
+ /* pha->hardware_lock supposed to be held on entry */
+-static int q24_build_ctio_pkt(struct q2t_prm *prm)
++static int q24_build_ctio_pkt(struct q2t_prm *prm, uint16_t timeout)
+ {
+ 	uint32_t h;
+ 	ctio7_status0_entry_t *pkt;
+@@ -2217,7 +2223,7 @@ static int q24_build_ctio_pkt(struct q2t
+ 
+ 	pkt->common.handle = h | CTIO_COMPLETION_HANDLE_MARK;
+ 	pkt->common.nport_handle = prm->cmd->loop_id;
+-	pkt->common.timeout = __constant_cpu_to_le16(Q2T_TIMEOUT);
++	pkt->common.timeout = __constant_cpu_to_le16(timeout);
+ 	pkt->common.initiator_id[0] = atio->fcp_hdr.s_id[2];
+ 	pkt->common.initiator_id[1] = atio->fcp_hdr.s_id[1];
+ 	pkt->common.initiator_id[2] = atio->fcp_hdr.s_id[0];
+@@ -2450,9 +2456,10 @@ static int q2t_pre_xmit_response(struct 
+ 	TRACE_ENTRY();
+ 
+ 	if (unlikely(cmd->aborted)) {
+-		TRACE_MGMT_DBG("qla2x00t(%ld): terminating exchange "
+-			"for aborted cmd=%p (scst_cmd=%p, tag=%d)",
+-			ha->instance, cmd, scst_cmd, cmd->tag);
++      		printk("qla2x00t(%lu): terminating exchange "
++                	"for aborted scst_cmd=%p cmd=%p (tag=%Ld:%x) c time %llu",
++	                ha->host_no, scst_cmd, cmd, scst_cmd_get_tag(scst_cmd),
++        	        (int)scst_cmd_get_tag(scst_cmd), cmd->c_time - jiffies);
+ 
+ 		cmd->state = Q2T_STATE_ABORTED;
+ 		scst_set_delivery_status(scst_cmd, SCST_CMD_DELIVERY_ABORTED);
+@@ -2862,7 +2869,7 @@ static int __q24_xmit_response(struct q2
+ 	ha = prm.tgt->ha;
+ 	pha = to_qla_parent(ha);
+ 
+-	res = q24_build_ctio_pkt(&prm);
++	res = q24_build_ctio_pkt(&prm, Q2T_TIMEOUT);
+ 	if (unlikely(res != SCST_TGT_RES_SUCCESS))
+ 		goto out_unmap_unlock;
+ 
+@@ -2946,6 +2953,7 @@ static int __q2t_rdy_to_xfer(struct q2t_
+ 	TRACE_ENTRY();
+ 
+ 	memset(&prm, 0, sizeof(prm));
++	cmd->alloc_time = jiffies;
+ 	prm.cmd = cmd;
+ 	prm.tgt = tgt;
+ 	prm.sg = NULL;
+@@ -2977,7 +2985,7 @@ static int __q2t_rdy_to_xfer(struct q2t_
+ 
+ 	if (IS_FWI2_CAPABLE(ha)) {
+ 		ctio7_status0_entry_t *pkt;
+-		res = q24_build_ctio_pkt(&prm);
++		res = q24_build_ctio_pkt(&prm, ql2xferdytimeout);
+ 		if (unlikely(res != SCST_TGT_RES_SUCCESS))
+ 			goto out_unlock_free_unmap;
+ 		pkt = (ctio7_status0_entry_t *)prm.pkt;
+@@ -2995,6 +3003,7 @@ static int __q2t_rdy_to_xfer(struct q2t_
+ 	}
+ 
+ 	cmd->state = Q2T_STATE_NEED_DATA;
++	cmd->alloc_ctio_time = jiffies;
+ 
+ 	TRACE_BUFFER("Xfering", p, REQUEST_ENTRY_SIZE);
+ 
+@@ -3116,12 +3125,31 @@ static void q24_send_term_exchange(scsi_
+ 	ctio7_status1_entry_t *ctio;
+ 	unsigned long flags = 0; /* to stop compiler's warning */
+ 	int do_tgt_cmd_done = 0;
++        unsigned long long  c_time;
++        unsigned long long  alloc_time;
++        unsigned long long  alloc_ctio_time;
++        unsigned long long  xfer_time;
+ 	scsi_qla_host_t *pha = to_qla_parent(ha);
+ 
+ 	TRACE_ENTRY();
+ 
+ 	TRACE_DBG("Sending TERM EXCH CTIO7 (ha=%p)", ha);
++	if (cmd == NULL)
++		goto send_marker;
+ 
++	if (cmd->scst_cmd ) {
++		printk("q24xxt_send_term_exchange Lun %llu host no %lu iname %s oxid %x state %d  opcode %x\n",
++			cmd->scst_cmd->lun,  ha->host_no, cmd->scst_cmd->sess->initiator_name,
++			swab16(atio->fcp_hdr.ox_id), cmd->scst_cmd->state, cmd->scst_cmd->cdb[0]);
++	}
++	c_time = cmd->c_time ? (jiffies - cmd->c_time) * 1000 / HZ : 0;
++	alloc_time = cmd->alloc_time ? (jiffies - cmd->alloc_time) * 1000 / HZ : 0;
++	alloc_ctio_time = cmd->alloc_ctio_time ? (jiffies - cmd->alloc_ctio_time) * 1000 / HZ : 0;
++	xfer_time = cmd->xfer_time ? (jiffies - cmd->xfer_time) * 1000 / HZ : 0;
++
++	printk("q24_send_term_exchange ctime: %llu  alloc_time %lld alloc+ctio time %lld rdy_to_xfer time %llu \n",
++		c_time, alloc_time, alloc_ctio_time, xfer_time);
++send_marker:
+ 	/* Send marker if required */
+ 	if (q2t_issue_marker(ha, ha_locked) != QLA_SUCCESS)
+ 		goto out;
+@@ -3512,6 +3540,7 @@ static void q2t_do_ctio_completion(scsi_
+ 		int rx_status = SCST_RX_STATUS_SUCCESS;
+ 
+ 		cmd->state = Q2T_STATE_DATA_IN;
++		cmd->xfer_time = jiffies;
+ 
+ 		if (unlikely(status != CTIO_SUCCESS))
+ 			rx_status = SCST_RX_STATUS_ERROR;
+@@ -3521,6 +3550,13 @@ static void q2t_do_ctio_completion(scsi_
+ 		TRACE_DBG("Data received, context %x, rx_status %d",
+ 		      context, rx_status);
+ 
++		if ((status & 0xFFFF) == CTIO_TIMEOUT) {
++			printk("Setting data phase error \n");
++			rx_status = SCST_RX_STATUS_ERROR_SENSE_SET;
++			scst_set_cmd_error(scst_cmd,
++			SCST_LOAD_SENSE(scst_sense_aborted_dataphase_command));
++		}
++
+ 		scst_rx_data(scst_cmd, rx_status, context);
+ 		goto out;
+ 	} else if (cmd->state == Q2T_STATE_ABORTED) {
+@@ -3769,6 +3805,7 @@ static int q2t_send_cmd_to_scst(scsi_qla
+ 	memcpy(&cmd->atio.atio2x, atio, sizeof(*atio));
+ 	cmd->state = Q2T_STATE_NEW;
+ 	cmd->tgt = ha->tgt;
++	cmd->c_time = jiffies;
+ 
+ 	if (IS_FWI2_CAPABLE(ha)) {
+ 		atio7_entry_t *a = (atio7_entry_t *)atio;
+diff -Nurp scst2.1.0/qla2x00t/qla2x00-target/qla2x00t.h scst_rhel6/qla2x00t/qla2x00-target/qla2x00t.h
+--- scst2.1.0/qla2x00t/qla2x00-target/qla2x00t.h	2011-09-02 00:31:25.000000000 +0530
++++ scst_rhel6/qla2x00t/qla2x00-target/qla2x00t.h	2014-05-15 20:03:31.015700261 +0530
+@@ -23,9 +23,9 @@
+ #ifndef __QLA2X00T_H
+ #define __QLA2X00T_H
+ 
+-#include <qla_def.h>
+-#include <qla2x_tgt.h>
+-#include <qla2x_tgt_def.h>
++#include "../qla_def.h"
++#include "../qla2x_tgt.h"
++#include "../qla2x_tgt_def.h"
+ 
+ #include <scst_debug.h>
+ 
+@@ -220,6 +220,10 @@ struct q2t_cmd {
+ 		atio7_entry_t atio7;
+ 		atio_entry_t atio2x;
+ 	} __attribute__((packed)) atio;
++        unsigned long long  c_time;
++        unsigned long long  alloc_time;
++        unsigned long long  alloc_ctio_time;
++        unsigned long long  xfer_time;
+ };
+ 
+ struct q2t_sess_work_param {
+@@ -284,4 +288,6 @@ struct srr_ctio {
+ #define Q2T_XMIT_STATUS		2
+ #define Q2T_XMIT_ALL		(Q2T_XMIT_STATUS|Q2T_XMIT_DATA)
+ 
++#define scst_sense_aborted_dataphase_command              ABORTED_COMMAND, 0x4b, 0
++
+ #endif /* __QLA2X00T_H */
+diff -Nurp scst2.1.0/qla2x00t/qla2x_tgt_def.h scst_rhel6/qla2x00t/qla2x_tgt_def.h
+--- scst2.1.0/qla2x00t/qla2x_tgt_def.h	2011-01-07 01:32:04.000000000 +0530
++++ scst_rhel6/qla2x00t/qla2x_tgt_def.h	2014-05-15 20:03:31.021702597 +0530
+@@ -28,11 +28,11 @@
+ #define __QLA2X_TGT_DEF_H
+ 
+ #include "qla_def.h"
+-
++/*
+ #ifndef CONFIG_SCSI_QLA2XXX_TARGET
+ #error __FILE__ " included without CONFIG_SCSI_QLA2XXX_TARGET"
+ #endif
+-
++*/
+ #ifndef ENTER
+ #define ENTER(a)
+ #endif
+diff -Nurp scst2.1.0/qla2x00t/qla2x_tgt.h scst_rhel6/qla2x00t/qla2x_tgt.h
+--- scst2.1.0/qla2x00t/qla2x_tgt.h	2011-02-27 15:16:41.000000000 +0530
++++ scst_rhel6/qla2x00t/qla2x_tgt.h	2014-05-15 20:03:31.035698926 +0530
+@@ -31,7 +31,7 @@
+ 
+ extern request_t *qla2x00_req_pkt(scsi_qla_host_t *ha);
+ 
+-#ifdef CONFIG_SCSI_QLA2XXX_TARGET
++//#ifdef CONFIG_SCSI_QLA2XXX_TARGET
+ 
+ #include "qla2x_tgt_def.h"
+ 
+@@ -137,6 +137,6 @@ extern size_t qla2xxx_del_vtarget(u64 *p
+ #endif /*((LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28)) || \
+ 	  defined(FC_VPORT_CREATE_DEFINED))*/
+ 
+-#endif /* CONFIG_SCSI_QLA2XXX_TARGET */
++//#endif /* CONFIG_SCSI_QLA2XXX_TARGET */
+ 
+ #endif /* __QLA2X_TGT_H */
+diff -Nurp scst2.1.0/qla2x00t/qla_attr.c scst_rhel6/qla2x00t/qla_attr.c
+--- scst2.1.0/qla2x00t/qla_attr.c	2011-02-16 04:56:27.000000000 +0530
++++ scst_rhel6/qla2x00t/qla_attr.c	2014-05-15 20:03:31.022700738 +0530
+@@ -121,6 +121,11 @@ qla2x00_store_tgt_enabled(struct device 
+ 
+ 	if ((buffer == NULL) || (size == 0))
+ 		goto out;
++	if (ha->parent != NULL) {
++		qla_printk(KERN_INFO, ha, "%s: Can't make NPVI port to target port\n", __func__);
++		res = -EINVAL;
++		goto out;
++	}
+ 
+ 	if (qla_target.tgt_host_action == NULL) {
+ 		qla_printk(KERN_INFO, ha, "%s: not acting for lack of target "
+@@ -158,6 +163,25 @@ static DEVICE_ATTR(target_mode_enabled,
+ 		   qla2x00_show_tgt_enabled,
+ 		   qla2x00_store_tgt_enabled);
+ 
++
++static ssize_t
++qla2x00_show_parent(struct device *dev,
++	struct device_attribute *attr, char *buffer)
++{
++	scsi_qla_host_t *vha = shost_priv(class_to_shost(dev));
++	scsi_qla_host_t *ha = NULL;
++	ssize_t size;
++
++	ha = to_qla_parent(vha);
++	size = scnprintf(buffer, PAGE_SIZE, "%d\n", ha->host_no);
++
++	return size;
++}
++
++static DEVICE_ATTR(parent,
++		   S_IRUGO|S_IWUSR,
++		   qla2x00_show_parent,
++		   NULL);
+ static ssize_t
+ qla2x00_show_expl_conf_enabled(struct device *dev,
+ 	struct device_attribute *attr, char *buffer)
+@@ -534,11 +558,7 @@ static DEVICE_ATTR(port_database,
+ #endif /* CONFIG_SCSI_QLA2XXX_TARGET */
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_read_fw_dump(
+-#else
+ qla2x00_sysfs_read_fw_dump(struct file *file,
+-#endif
+ 			   struct kobject *kobj,
+ 			   struct bin_attribute *bin_attr,
+ 			   char *buf, loff_t off, size_t count)
+@@ -560,11 +580,7 @@ qla2x00_sysfs_read_fw_dump(struct file *
+ }
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_write_fw_dump(
+-#else
+ qla2x00_sysfs_write_fw_dump(struct file *file,
+-#endif
+ 			    struct kobject *kobj,
+ 			    struct bin_attribute *bin_attr,
+ 			    char *buf, loff_t off, size_t count)
+@@ -618,11 +634,7 @@ static struct bin_attribute sysfs_fw_dum
+ };
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_read_nvram(
+-#else
+ qla2x00_sysfs_read_nvram(struct file *file,
+-#endif
+ 			 struct kobject *kobj,
+ 			 struct bin_attribute *bin_attr,
+ 			 char *buf, loff_t off, size_t count)
+@@ -646,11 +658,7 @@ qla2x00_sysfs_read_nvram(struct file *fi
+ }
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_write_nvram(
+-#else
+ qla2x00_sysfs_write_nvram(struct file *file,
+-#endif
+ 			  struct kobject *kobj,
+ 			  struct bin_attribute *bin_attr,
+ 			  char *buf, loff_t off, size_t count)
+@@ -706,11 +714,7 @@ static struct bin_attribute sysfs_nvram_
+ };
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_read_optrom(
+-#else
+ qla2x00_sysfs_read_optrom(struct file *file,
+-#endif
+ 			  struct kobject *kobj,
+ 			  struct bin_attribute *bin_attr,
+ 			  char *buf, loff_t off, size_t count)
+@@ -731,11 +735,7 @@ qla2x00_sysfs_read_optrom(struct file *f
+ }
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_write_optrom(
+-#else
+ qla2x00_sysfs_write_optrom(struct file *file,
+-#endif
+ 			   struct kobject *kobj,
+ 			   struct bin_attribute *bin_attr,
+ 			   char *buf, loff_t off, size_t count)
+@@ -766,11 +766,7 @@ static struct bin_attribute sysfs_optrom
+ };
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_write_optrom_ctl(
+-#else
+ qla2x00_sysfs_write_optrom_ctl(struct file *file,
+-#endif
+ 			       struct kobject *kobj,
+ 			       struct bin_attribute *bin_attr,
+ 			       char *buf, loff_t off, size_t count)
+@@ -923,11 +919,7 @@ static struct bin_attribute sysfs_optrom
+ };
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_read_vpd(
+-#else
+ qla2x00_sysfs_read_vpd(struct file *file,
+-#endif
+ 		       struct kobject *kobj,
+ 		       struct bin_attribute *bin_attr,
+ 		       char *buf, loff_t off, size_t count)
+@@ -951,11 +943,7 @@ qla2x00_sysfs_read_vpd(struct file *file
+ }
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_write_vpd(
+-#else
+ qla2x00_sysfs_write_vpd(struct file *file,
+-#endif
+ 			struct kobject *kobj,
+ 			struct bin_attribute *bin_attr,
+ 			char *buf, loff_t off, size_t count)
+@@ -984,11 +972,7 @@ static struct bin_attribute sysfs_vpd_at
+ };
+ 
+ static ssize_t
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35)
+-qla2x00_sysfs_read_sfp(
+-#else
+ qla2x00_sysfs_read_sfp(struct file *file,
+-#endif
+ 		       struct kobject *kobj,
+ 		       struct bin_attribute *bin_attr,
+ 		       char *buf, loff_t off, size_t count)
+@@ -1420,6 +1404,7 @@ struct device_attribute *qla2x00_host_at
+ 	&dev_attr_optrom_fcode_version,
+ 	&dev_attr_optrom_fw_version,
+ 	&dev_attr_class2_enabled,
++	&dev_attr_parent,
+ #ifdef CONFIG_SCSI_QLA2XXX_TARGET
+ #ifdef CONFIG_SCST_PROC
+ 	&dev_attr_target_mode_enabled,
+@@ -1712,8 +1697,8 @@ qla24xx_vport_create(struct fc_vport *fc
+ 
+ 	ret = qla24xx_vport_create_req_sanity_check(fc_vport);
+ 	if (ret) {
+-		DEBUG15(printk("qla24xx_vport_create_req_sanity_check failed, "
+-		    "status %x\n", ret));
++		printk("qla24xx_vport_create_req_sanity_check failed, "
++		    "status %x\n", ret);
+ 		return (ret);
+ 	}
+ 
+diff -Nurp scst2.1.0/qla2x00t/qla_def.h scst_rhel6/qla2x00t/qla_def.h
+--- scst2.1.0/qla2x00t/qla_def.h	2010-12-25 00:28:06.000000000 +0530
++++ scst_rhel6/qla2x00t/qla_def.h	2014-05-15 20:03:31.021702597 +0530
+@@ -7,6 +7,9 @@
+ #ifndef __QLA_DEF_H
+ #define __QLA_DEF_H
+ 
++
++#define CONFIG_SCSI_QLA2XXX_TARGET
++
+ #include <linux/kernel.h>
+ #include <linux/init.h>
+ #include <linux/types.h>
+diff -Nurp scst2.1.0/qla2x00t/qla_isr.c scst_rhel6/qla2x00t/qla_isr.c
+--- scst2.1.0/qla2x00t/qla_isr.c	2011-06-17 06:02:48.000000000 +0530
++++ scst_rhel6/qla2x00t/qla_isr.c	2014-05-15 20:03:31.013700168 +0530
+@@ -577,27 +577,23 @@ qla2x00_async_event(scsi_qla_host_t *ha,
+ 		atomic_set(&ha->loop_down_timer, 0);
+ 		if (atomic_read(&ha->loop_state) != LOOP_DOWN &&
+ 		    atomic_read(&ha->loop_state) != LOOP_DEAD) {
+-			DEBUG2(printk("scsi(%ld): Asynchronous PORT UPDATE "
+-			    "ignored %04x/%04x/%04x.\n", ha->host_no, mb[1],
+-			    mb[2], mb[3]));
++//			DEBUG2(printk("scsi(%ld): Asynchronous PORT UPDATE "
++//			    "ignored %04x/%04x/%04x.\n", ha->host_no, mb[1],
++//			    mb[2], mb[3]));
+ #ifdef CONFIG_SCSI_QLA2XXX_TARGET
+-			DEBUG2(printk(KERN_INFO "scsi(%ld): ha state %d "
+-				"init_done %d oper_mode %d topo %d\n",
+-				ha->host_no, atomic_read(&ha->loop_state),
+-				ha->flags.init_done, ha->operating_mode,
+-				ha->current_topology));
+ 			if (qla_target.tgt_async_event)
+ 				qla_target.tgt_async_event(mb[0], ha, mb);
+ #endif
+ 			break;
+ 		}
+ 
+-		DEBUG2(printk("scsi(%ld): Asynchronous PORT UPDATE.\n",
++/*seeing lot of message with Axiom port can't say where the issue is but bettter to remove message.
++ * 		DEBUG2(printk("scsi(%ld): Asynchronous PORT UPDATE.\n",
+ 		    ha->host_no));
+ 		DEBUG(printk(KERN_INFO
+ 		    "scsi(%ld): Port database changed %04x %04x %04x.\n",
+ 		    ha->host_no, mb[1], mb[2], mb[3]));
+-
++*/
+ 		/*
+ 		 * Mark all devices as missing so we will login again.
+ 		 */
+diff -Nurp scst2.1.0/qla2x00t/qla_mid.c scst_rhel6/qla2x00t/qla_mid.c
+--- scst2.1.0/qla2x00t/qla_mid.c	2011-05-21 04:32:07.000000000 +0530
++++ scst_rhel6/qla2x00t/qla_mid.c	2014-05-15 20:03:31.014709733 +0530
+@@ -336,7 +336,7 @@ qla24xx_vport_create_req_sanity_check(st
+ 	scsi_qla_host_t *vha;
+ 	uint8_t port_name[WWN_SIZE];
+ 
+-	if (fc_vport->roles != FC_PORT_ROLE_FCP_INITIATOR)
++	if (qla_tgt_mode_enabled(ha))
+ 		return VPCERR_UNSUPPORTED;
+ 
+ 	/* Check up the F/W and H/W support NPIV */
+diff -Nurp scst2.1.0/qla2x00t/qla_os.c scst_rhel6/qla2x00t/qla_os.c
+--- scst2.1.0/qla2x00t/qla_os.c	2011-09-02 00:19:22.000000000 +0530
++++ scst_rhel6/qla2x00t/qla_os.c	2014-05-15 20:03:31.015700261 +0530
+@@ -801,6 +801,7 @@ qla2xxx_eh_abort(struct scsi_cmnd *cmd)
+ 		if (ha->isp_ops->abort_command(ha, sp)) {
+ 			DEBUG2(printk("%s(%ld): abort_command "
+ 			    "mbx failed.\n", __func__, ha->host_no));
++			ret = FAILED;
+ 		} else {
+ 			DEBUG3(printk("%s(%ld): abort_command "
+ 			    "mbx success.\n", __func__, ha->host_no));
+@@ -3293,24 +3294,7 @@ qla2x00_module_init(void)
+ {
+ 	int ret = 0;
+ 
+-#if defined(QL_DEBUG_LEVEL_1) || \
+-    defined(QL_DEBUG_LEVEL_2) || \
+-    defined(QL_DEBUG_LEVEL_3) || \
+-    defined(QL_DEBUG_LEVEL_4) || \
+-    defined(QL_DEBUG_LEVEL_5) || \
+-    defined(QL_DEBUG_LEVEL_6) || \
+-    defined(QL_DEBUG_LEVEL_7) || \
+-    defined(QL_DEBUG_LEVEL_8) || \
+-    defined(QL_DEBUG_LEVEL_9) || \
+-    defined(QL_DEBUG_LEVEL_10) || \
+-    defined(QL_DEBUG_LEVEL_11) || \
+-    defined(QL_DEBUG_LEVEL_12) || \
+-    defined(QL_DEBUG_LEVEL_13) || \
+-    defined(QL_DEBUG_LEVEL_14) || \
+-    defined(QL_DEBUG_LEVEL_15) || \
+-    defined(QL_DEBUG_LEVEL_16)
+ 	ql2xextended_error_logging = 1;
+-#endif
+ 
+ #ifdef CONFIG_SCSI_QLA2XXX_TARGET
+ 	if (!qla2x00_parse_ini_mode()) {
+diff -Nurp scst2.1.0/scst/include/scst_const.h scst_rhel6/scst/include/scst_const.h
+--- scst2.1.0/scst/include/scst_const.h	2011-09-02 00:31:25.000000000 +0530
++++ scst_rhel6/scst/include/scst_const.h	2014-05-15 20:03:31.062701810 +0530
+@@ -47,7 +47,7 @@
+ #define SCST_VERSION_NAME	    "2.1.0"
+ #define SCST_VERSION_STRING	    SCST_VERSION_NAME SCST_VERSION_STRING_SUFFIX
+ 
+-#define SCST_CONST_VERSION "$Revision: 1.5 $"
++#define SCST_CONST_VERSION "$Revision: 1.5 $"
+ 
+ /*** Shared constants between user and kernel spaces ***/
+ 
+diff -Nurp scst2.1.0/scst/include/scst.h scst_rhel6/scst/include/scst.h
+--- scst2.1.0/scst/include/scst.h	2011-09-02 00:19:22.000000000 +0530
++++ scst_rhel6/scst/include/scst.h	2014-05-15 20:03:31.062701810 +0530
+@@ -30,7 +30,7 @@
+ #include <linux/wait.h>
+ #include <linux/cpumask.h>
+ 
+-/* #define CONFIG_SCST_PROC */
++#define CONFIG_SCST_PROC
+ 
+ #ifdef CONFIG_SCST_PROC
+ #include <linux/proc_fs.h>
+@@ -144,7 +144,7 @@ static inline unsigned int queue_max_hw_
+ #endif
+ 
+ #define SCST_INTERFACE_VERSION	    \
+-		SCST_VERSION_STRING "$Revision: 1.5 $" SCST_CONST_VERSION
++		SCST_VERSION_STRING "$Revision: 1.5 $" SCST_CONST_VERSION
+ 
+ #define SCST_LOCAL_NAME			"scst_local"
+ 
+diff -Nurp scst2.1.0/scst/include/scst_user.h scst_rhel6/scst/include/scst_user.h
+--- scst2.1.0/scst/include/scst_user.h	2011-03-15 18:39:13.000000000 +0530
++++ scst_rhel6/scst/include/scst_user.h	2014-05-15 20:03:31.061702391 +0530
+@@ -33,7 +33,7 @@
+ #define DEV_USER_PATH			"/dev/"
+ #define DEV_USER_VERSION_NAME		SCST_VERSION_NAME
+ #define DEV_USER_VERSION		\
+-	DEV_USER_VERSION_NAME "$Revision: 1.5 $" SCST_CONST_VERSION
++	DEV_USER_VERSION_NAME "$Revision: 1.5 $" SCST_CONST_VERSION
+ 
+ #define SCST_USER_PARSE_STANDARD	0
+ #define SCST_USER_PARSE_CALL		1
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Kconfig.scst scst_rhel6/scst/kernel/in-tree/Kconfig.scst
+--- scst2.1.0/scst/kernel/in-tree/Kconfig.scst	2010-09-27 20:58:15.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Kconfig.scst	1970-01-01 05:30:00.000000000 +0530
+@@ -1,256 +0,0 @@
+-menu "SCSI target (SCST) support"
+-
+-config SCST
+-	tristate "SCSI target (SCST) support"
+-	depends on SCSI
+-	help
+-	  SCSI target (SCST) is designed to provide unified, consistent
+-	  interface between SCSI target drivers and Linux kernel and
+-	  simplify target drivers development as much as possible. Visit
+-	  http://scst.sourceforge.net for more info about it.
+-
+-config SCST_DISK
+-	tristate "SCSI target disk support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for disk device.
+-
+-config SCST_TAPE
+-	tristate "SCSI target tape support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for tape device.
+-
+-config SCST_CDROM
+-	tristate "SCSI target CDROM support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for CDROM device.
+-
+-config SCST_MODISK
+-	tristate "SCSI target MO disk support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for MO disk device.
+-
+-config SCST_CHANGER
+-	tristate "SCSI target changer support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for changer device.
+-
+-config SCST_PROCESSOR
+-	tristate "SCSI target processor support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for processor device.
+-
+-config SCST_RAID
+-	tristate "SCSI target storage array controller (RAID) support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST pass-through device handler for raid storage array controller (RAID) device.
+-
+-config SCST_VDISK
+-	tristate "SCSI target virtual disk and/or CDROM support"
+-	default SCST
+-	depends on SCSI && SCST
+-	help
+-	  SCST device handler for virtual disk and/or CDROM device.
+-
+-config SCST_USER
+-	tristate "User-space SCSI target driver support"
+-	default SCST
+-	depends on SCSI && SCST && !HIGHMEM4G && !HIGHMEM64G
+-	help
+-	  The SCST device handler scst_user allows to implement full-feature
+-          SCSI target devices in user space.
+-
+-	  If unsure, say "N".
+-
+-config SCST_STRICT_SERIALIZING
+-	bool "Strict serialization"
+-	depends on SCST
+-	help
+-	  Enable strict SCSI command serialization. When enabled, SCST sends
+-	  all SCSI commands to the underlying SCSI device synchronously, one
+-	  after one. This makes task management more reliable, at the cost of
+-	  a performance penalty. This is most useful for stateful SCSI devices
+-	  like tapes, where the result of the execution of a command
+-	  depends on the device settings configured by previous commands. Disk
+-	  and RAID devices are stateless in most cases. The current SCSI core
+-	  in Linux doesn't allow to abort all commands reliably if they have
+-	  been sent asynchronously to a stateful device.
+-	  Enable this option if you use stateful device(s) and need as much
+-	  error recovery reliability as possible.
+-
+-	  If unsure, say "N".
+-
+-config SCST_STRICT_SECURITY
+-	bool "Strict security"
+-	depends on SCST
+-	help
+-	  Makes SCST clear (zero-fill) allocated data buffers. Note: this has a
+-	  significant performance penalty.
+-
+-	  If unsure, say "N".
+-
+-config SCST_TEST_IO_IN_SIRQ
+-	bool "Allow test I/O from soft-IRQ context"
+-	depends on SCST
+-	help
+-	  Allows SCST to submit selected SCSI commands (TUR and
+-	  READ/WRITE) from soft-IRQ context (tasklets). Enabling it will
+-	  decrease amount of context switches and slightly improve
+-	  performance. The goal of this option is to be able to measure
+-	  overhead of the context switches. See more info about it in
+-	  README.scst.
+-
+-	  WARNING! Improperly used, this option can lead you to a kernel crash!
+-
+-	  If unsure, say "N".
+-
+-config SCST_ABORT_CONSIDER_FINISHED_TASKS_AS_NOT_EXISTING
+-	bool "Send back UNKNOWN TASK when an already finished task is aborted"
+-	depends on SCST
+-	help
+-	  Controls which response is sent by SCST to the initiator in case
+-	  the initiator attempts to abort (ABORT TASK) an already finished
+-	  request. If this option is enabled, the response UNKNOWN TASK is
+-	  sent back to the initiator. However, some initiators, particularly
+-	  the VMware iSCSI initiator, interpret the UNKNOWN TASK response as
+-	  if the target got crazy and try to RESET it. Then sometimes the
+-	  initiator gets crazy itself.
+-
+-	  If unsure, say "N".
+-
+-config SCST_USE_EXPECTED_VALUES
+-	bool "Prefer initiator-supplied SCSI command attributes"
+-	depends on SCST
+-	help
+-	  When SCST receives a SCSI command from an initiator, such a SCSI
+-	  command has both data transfer length and direction attributes.
+-	  There are two possible sources for these attributes: either the
+-	  values computed by SCST from its internal command translation table
+-	  or the values supplied by the initiator. The former are used by
+-	  default because of security reasons. Invalid initiator-supplied
+-	  attributes can crash the target, especially in pass-through mode.
+-	  Only consider enabling this option when SCST logs the following
+-	  message: "Unknown opcode XX for YY. Should you update
+-	  scst_scsi_op_table?" and when the initiator complains. Please
+-	  report any unrecognized commands to scst-devel@lists.sourceforge.net.
+-
+-	  If unsure, say "N".
+-
+-config SCST_EXTRACHECKS
+-	bool "Extra consistency checks"
+-	depends on SCST
+-	help
+-	  Enable additional consistency checks in the SCSI middle level target
+-	  code. This may be helpful for SCST developers. Enable it if you have
+-	  any problems.
+-
+-	  If unsure, say "N".
+-
+-config SCST_TRACING
+-	bool "Tracing support"
+-	depends on SCST
+-	default y
+-	help
+-	  Enable SCSI middle level tracing support. Tracing can be controlled
+-	  dynamically via sysfs interface. The traced information
+-	  is sent to the kernel log and may be very helpful when analyzing
+-	  the cause of a communication problem between initiator and target.
+-
+-	  If unsure, say "Y".
+-
+-config SCST_DEBUG
+-	bool "Debugging support"
+-	depends on SCST
+-	select DEBUG_BUGVERBOSE
+-	help
+-	  Enables support for debugging SCST. This may be helpful for SCST
+-	  developers.
+-
+-	  If unsure, say "N".
+-
+-config SCST_DEBUG_OOM
+-	bool "Out-of-memory debugging support"
+-	depends on SCST
+-	help
+-	  Let SCST's internal memory allocation function
+-	  (scst_alloc_sg_entries()) fail about once in every 10000 calls, at
+-	  least if the flag __GFP_NOFAIL has not been set. This allows SCST
+-	  developers to test the behavior of SCST in out-of-memory conditions.
+-	  This may be helpful for SCST developers.
+-
+-	  If unsure, say "N".
+-
+-config SCST_DEBUG_RETRY
+-	bool "SCSI command retry debugging support"
+-	depends on SCST
+-	help
+-	  Let SCST's internal SCSI command transfer function
+-	  (scst_rdy_to_xfer()) fail about once in every 100 calls. This allows
+-	  SCST developers to test the behavior of SCST when SCSI queues fill
+-	  up. This may be helpful for SCST developers.
+-
+-	  If unsure, say "N".
+-
+-config SCST_DEBUG_SN
+-	bool "SCSI sequence number debugging support"
+-	depends on SCST
+-	help
+-	  Allows to test SCSI command ordering via sequence numbers by
+-	  randomly changing the type of SCSI commands into
+-	  SCST_CMD_QUEUE_ORDERED, SCST_CMD_QUEUE_HEAD_OF_QUEUE or
+-	  SCST_CMD_QUEUE_SIMPLE for about one in 300 SCSI commands.
+-	  This may be helpful for SCST developers.
+-
+-	  If unsure, say "N".
+-
+-config SCST_DEBUG_TM
+-	bool "Task management debugging support"
+-	depends on SCST_DEBUG
+-	help
+-	  Enables support for debugging of SCST's task management functions.
+-	  When enabled, some of the commands on LUN 0 in the default access
+-	  control group will be delayed for about 60 seconds. This will
+-	  cause the remote initiator send SCSI task management functions,
+-	  e.g. ABORT TASK and TARGET RESET.
+-
+-	  If unsure, say "N".
+-
+-config SCST_TM_DBG_GO_OFFLINE
+-	bool "Let devices become completely unresponsive"
+-	depends on SCST_DEBUG_TM
+-	help
+-	  Enable this option if you want that the device eventually becomes
+-	  completely unresponsive. When disabled, the device will receive
+-	  ABORT and RESET commands.
+-
+-config SCST_MEASURE_LATENCY
+-	bool "Commands processing latency measurement facility"
+-	depends on SCST
+-	help
+-	  This option enables commands processing latency measurement
+-	  facility in SCST. It will provide in the sysfs interface
+-	  average commands processing latency statistics. You can clear
+-	  already measured results by writing 0 in the corresponding sysfs file.
+-	  Note, you need a non-preemtible kernel to have correct results.
+-
+-	  If unsure, say "N".
+-
+-source "drivers/scst/fcst/Kconfig"
+-source "drivers/scst/iscsi-scst/Kconfig"
+-source "drivers/scst/scst_local/Kconfig"
+-source "drivers/scst/srpt/Kconfig"
+-
+-endmenu
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.23 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.23
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.23	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.23	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-EXTRA_CFLAGS += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.24 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.24
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.24	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.24	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.25 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.25
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.25	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.25	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.26 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.26
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.26	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.26	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.27 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.27
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.27	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.27	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.28 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.28
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.28	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.28	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.29 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.29
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.29	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.29	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.30 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.30
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.30	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.30	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.31 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.31
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.31	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.31	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.32 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.32
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.32	2010-01-12 00:46:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.32	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.33 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.33
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.33	2010-03-01 23:02:38.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.33	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.34 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.34
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.34	2010-05-22 13:47:44.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.34	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.35 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.35
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.35	2010-09-09 21:08:31.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.35	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.36 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.36
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.36	2010-10-21 17:50:34.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.36	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.37 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.37
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.37	2010-12-20 19:42:44.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.37	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.38 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.38
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.38	2011-03-24 17:25:23.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.38	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.39 scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.39
+--- scst2.1.0/scst/kernel/in-tree/Makefile.dev_handlers-2.6.39	2011-05-21 04:32:07.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.dev_handlers-2.6.39	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-obj-m := scst_cdrom.o scst_changer.o scst_disk.o scst_modisk.o scst_tape.o \
+-	scst_vdisk.o scst_raid.o scst_processor.o scst_user.o
+-
+-obj-$(CONFIG_SCST_DISK)		+= scst_disk.o
+-obj-$(CONFIG_SCST_TAPE)		+= scst_tape.o
+-obj-$(CONFIG_SCST_CDROM)	+= scst_cdrom.o
+-obj-$(CONFIG_SCST_MODISK)	+= scst_modisk.o
+-obj-$(CONFIG_SCST_CHANGER)	+= scst_changer.o
+-obj-$(CONFIG_SCST_RAID)		+= scst_raid.o
+-obj-$(CONFIG_SCST_PROCESSOR)	+= scst_processor.o
+-obj-$(CONFIG_SCST_VDISK)	+= scst_vdisk.o
+-obj-$(CONFIG_SCST_USER)		+= scst_user.o
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.23 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.23
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.23	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.23	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-EXTRA_CFLAGS += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.24 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.24
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.24	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.24	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.25 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.25
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.25	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.25	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.26 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.26
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.26	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.26	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.27 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.27
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.27	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.27	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.28 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.28
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.28	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.28	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.29 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.29
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.29	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.29	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.30 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.30
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.30	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.30	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.31 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.31
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.31	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.31	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.32 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.32
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.32	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.32	1970-01-01 05:30:00.000000000 +0530
+@@ -1,14 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_proc.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ iscsi-scst/ qla2xxx-target/ srpt/ \
+-			scst_local/
+-
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.33 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.33
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.33	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.33	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.34 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.34
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.34	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.34	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Iinclude/scst -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.35 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.35
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.35	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.35	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.36 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.36
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.36	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.36	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.37 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.37
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.37	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.37	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.38 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.38
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.38	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.38	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.39 scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.39
+--- scst2.1.0/scst/kernel/in-tree/Makefile.scst-2.6.39	2011-05-21 04:32:07.000000000 +0530
++++ scst_rhel6/scst/kernel/in-tree/Makefile.scst-2.6.39	1970-01-01 05:30:00.000000000 +0530
+@@ -1,13 +0,0 @@
+-ccflags-y += -Wno-unused-parameter
+-
+-scst-y        += scst_main.o
+-scst-y        += scst_pres.o
+-scst-y        += scst_targ.o
+-scst-y        += scst_lib.o
+-scst-y        += scst_sysfs.o
+-scst-y        += scst_mem.o
+-scst-y        += scst_tg.o
+-scst-y        += scst_debug.o
+-
+-obj-$(CONFIG_SCST)   += scst.o dev_handlers/ fcst/ iscsi-scst/ qla2xxx-target/ \
+-			srpt/ scst_local/
+diff -Nurp scst2.1.0/scst/src/Makefile scst_rhel6/scst/src/Makefile
+--- scst2.1.0/scst/src/Makefile	2011-06-27 21:46:03.000000000 +0530
++++ scst_rhel6/scst/src/Makefile	2014-05-15 20:03:31.041699616 +0530
+@@ -40,8 +40,8 @@ obj-m := scst.o
+ scst-y        += scst_main.o
+ scst-y        += scst_targ.o
+ scst-y        += scst_lib.o
+-#scst-y        += scst_proc.o
+-scst-y        += scst_sysfs.o
++scst-y        += scst_proc.o
++#scst-y        += scst_sysfs.o
+ scst-y        += scst_mem.o
+ scst-y        += scst_debug.o
+ scst-y        += scst_pres.o
+diff -Nurp scst2.1.0/scst/src/scst_lib.c scst_rhel6/scst/src/scst_lib.c
+--- scst2.1.0/scst/src/scst_lib.c	2011-09-02 00:19:22.000000000 +0530
++++ scst_rhel6/scst/src/scst_lib.c	2014-05-16 11:48:42.193130356 +0530
+@@ -674,7 +674,13 @@ static const struct scst_sdbops scst_scs
+ 	{0xBF, "            O   ", "VOLUME SET(OUT)",
+ 	 SCST_DATA_WRITE, FLAG_NONE, 6, get_trans_len_4},
+ 	{0xE7, "        V       ", "INIT ELEMENT STATUS WRANGE",
+-	 SCST_DATA_NONE, SCST_LONG_TIMEOUT, 0, get_trans_cdb_len_10}
++	 SCST_DATA_NONE, SCST_LONG_TIMEOUT, 0, get_trans_cdb_len_10},
++	{0xC0, "V               ", "VENDOR CDB FOR USER1",
++	 SCST_DATA_NONE, FLAG_NONE, 0, get_trans_len_none},
++	{0xC2, "V               ", "VENDOR CDB FOR USER2",
++	 SCST_DATA_WRITE, FLAG_NONE, 1, get_trans_len_4},
++	{0xC5, "V               ", "VENDOR CDB FOR USER3",
++	 SCST_DATA_NONE, FLAG_NONE, 0, get_trans_len_none}
+ };
+ 
+ #define SCST_CDB_TBL_SIZE	((int)ARRAY_SIZE(scst_scsi_op_table))
+@@ -1268,15 +1274,16 @@ void scst_set_busy(struct scst_cmd *cmd)
+ 
+ 	if ((c <= 1) || (cmd->sess->init_phase != SCST_SESS_IPH_READY))	{
+ 		scst_set_cmd_error_status(cmd, SAM_STAT_BUSY);
+-		TRACE(TRACE_FLOW_CONTROL, "Sending BUSY status to initiator %s "
+-			"(cmds count %d, queue_type %x, sess->init_phase %d)",
++		printk("Sending BUSY status to initiator %s "
++			"(cmds count %d, queue_type %x, sess->init_phase %d)\n",
+ 			cmd->sess->initiator_name, c,
+ 			cmd->queue_type, cmd->sess->init_phase);
++		dump_stack();
+ 	} else {
+ 		scst_set_cmd_error_status(cmd, SAM_STAT_TASK_SET_FULL);
+-		TRACE(TRACE_FLOW_CONTROL, "Sending QUEUE_FULL status to "
++		printk("Sending QUEUE_FULL status to "
+ 			"initiator %s (cmds count %d, queue_type %x, "
+-			"sess->init_phase %d)", cmd->sess->initiator_name, c,
++			"sess->init_phase %d) \n", cmd->sess->initiator_name, c,
+ 			cmd->queue_type, cmd->sess->init_phase);
+ 	}
+ 
+@@ -4145,7 +4152,7 @@ void scst_cmd_set_ext_cdb(struct scst_cm
+ 
+ 	cmd->cdb = kmalloc(len, gfp_mask);
+ 	if (unlikely(cmd->cdb == NULL)) {
+-		PRINT_ERROR("Unable to alloc extended CDB (size %d)", len);
++		printk("Unable to alloc extended CDB (size %d)\n", len);
+ 		goto out_err;
+ 	}
+ 
+@@ -4993,7 +5000,7 @@ out:
+ }
+ EXPORT_SYMBOL(scst_put_buf_full);
+ 
+-static const int SCST_CDB_LENGTH[8] = { 6, 10, 10, 0, 16, 12, 0, 0 };
++static const int SCST_CDB_LENGTH[8] = { 6, 10, 10, 0, 16, 12, 16, 0 };
+ 
+ #define SCST_CDB_GROUP(opcode)   ((opcode >> 5) & 0x7)
+ #define SCST_GET_CDB_LEN(opcode) SCST_CDB_LENGTH[SCST_CDB_GROUP(opcode)]
+Binary files scst2.1.0/scst/src/.scst_priv.h.swp and scst_rhel6/scst/src/.scst_priv.h.swp differ
+diff -Nurp scst2.1.0/scst/src/scst_targ.c scst_rhel6/scst/src/scst_targ.c
+--- scst2.1.0/scst/src/scst_targ.c	2011-07-08 03:05:29.000000000 +0530
++++ scst_rhel6/scst/src/scst_targ.c	2014-05-15 20:03:31.041699616 +0530
+@@ -2867,8 +2867,8 @@ static int scst_send_for_exec(struct scs
+ 				scst_set_cmd_abnormal_done_state(cmd);
+ 				res = SCST_CMD_STATE_RES_CONT_SAME;
+ 			} else {
+-				TRACE_SN("Deferring cmd %p (sn=%d, set %d, "
+-					"expected_sn=%d)", cmd, cmd->sn,
++				printk("Deferring cmd %p (sn=%d, set %d, "
++					"expected_sn=%d)\n", cmd, cmd->sn,
+ 					cmd->sn_set, expected_sn);
+ 				list_add_tail(&cmd->sn_cmd_list_entry,
+ 					      &order_data->deferred_cmd_list);
+@@ -3723,6 +3723,7 @@ static void scst_cmd_set_sn(struct scst_
+ 			 * atomic_inc_return() implies memory barrier to sync
+ 			 * with scst_inc_expected_sn()
+ 			 */
++			spin_lock_irqsave(&order_data->sn_lock, flags);
+ 			if (atomic_inc_return(order_data->cur_sn_slot) == 1) {
+ 				order_data->curr_sn++;
+ 				TRACE_SN("Incremented curr_sn %d",
+@@ -3730,6 +3731,7 @@ static void scst_cmd_set_sn(struct scst_
+ 			}
+ 			cmd->sn_slot = order_data->cur_sn_slot;
+ 			cmd->sn = order_data->curr_sn;
++			spin_unlock_irqrestore(&order_data->sn_lock, flags);
+ 
+ 			order_data->prev_cmd_ordered = 0;
+ 		} else {
