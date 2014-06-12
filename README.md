@@ -1,0 +1,4 @@
+SCST-FIXES
+==========
+
+SCST FIXES for RHEL/CENTOS
